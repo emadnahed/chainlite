@@ -1,8 +1,3 @@
-Here’s a complete, professional-quality `README.md` for **ChainLite — A Minimal Blockchain API in Python**, tailored for GitHub:
-
----
-
-````markdown
 # 🚀 ChainLite — A Minimal Blockchain API in Python
 
 ChainLite is a lightweight, modular blockchain implementation built using **Python + FastAPI**. It demonstrates how blockchain fundamentals like proof-of-work, transactions, mining, and network consensus can be implemented and exposed via a RESTful API.
@@ -171,9 +166,4 @@ Inspired by educational blockchain prototypes and enhanced with modern Python pr
 Made with 💻 by [Your Name](https://github.com/your-username)
 Questions or suggestions? Open an issue or pull request!
 
-```
-
----
-
-Would you like me to generate the basic code structure or boilerplate for this too? I can scaffold it out so you start strong.
 ```
