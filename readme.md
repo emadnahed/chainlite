@@ -163,4 +163,3 @@ Inspired by educational blockchain prototypes and enhanced with modern Python pr
 
 ## 👋 Contact
 Questions or suggestions? Open an issue or pull request!
-```
