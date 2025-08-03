@@ -20,8 +20,7 @@ ChainLite is a lightweight, modular blockchain implementation built using **Pyth
 
 ## 🚀 Live Demo
 
-🔗 [COMING SOON] — Deploy to [Render](https://render.com), [Railway](https://railway.app), or [Replit](https://replit.com)  
-*(Guide included below)*
+🔗 [COMING SOON]
 
 ---
 
