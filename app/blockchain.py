@@ -137,26 +137,25 @@ class Blockchain:
         """
         Add a new node to the list of nodes
         
-        :param address: Address of node. Eg. 'http://192.168.0.5:5000'
+        :param address: Address of node. Eg. 'http://192.168.0.5:5000' or '192.168.0.5:5000'
         """
-        if not address:
-            raise ValueError('Empty node address provided')
-            
-        parsed_url = urlparse(address)
-        node_address = ''
-        
-        if parsed_url.netloc:
-            node_address = parsed_url.netloc
-        elif parsed_url.path:
-            # Accepts an URL without scheme like '192.168.0.5:5000'.
-            node_address = parsed_url.path
-        else:
-            raise ValueError(f'Invalid URL: {address}')
-            
-        if not node_address:
-            raise ValueError(f'Could not parse node address from: {address}')
-            
         try:
+            # Handle case where scheme might be missing
+            if not address.startswith(('http://', 'https://')):
+                address = f'http://{address}'
+                
+            parsed_url = urlparse(address)
+            if not parsed_url.netloc:
+                logger.warning(f'Invalid node address format: {address}')
+                return
+                
+            # Add both with and without scheme for flexibility
+            node_address = parsed_url.netloc
+            
+            # Don't add self
+            if node_address in self.nodes:
+                return
+                
             # Add to in-memory set
             self.nodes.add(node_address)
             
@@ -166,7 +165,11 @@ class Blockchain:
                 {'$setOnInsert': {'address': node_address}},
                 upsert=True
             )
+            
+            logger.info(f'Successfully registered node: {node_address}')
+            
         except Exception as e:
+            logger.error(f'Error registering node {address}: {str(e)}')
             # If database operation fails, remove from in-memory set
             if node_address in self.nodes:
                 self.nodes.remove(node_address)
@@ -241,28 +244,54 @@ class Blockchain:
         
         :return: True if our chain was replaced, False if not
         """
+        import requests
+        from requests.exceptions import RequestException
+        
+        if not self.nodes:
+            print("No nodes registered to resolve conflicts with")
+            return False
+            
         neighbours = self.nodes
         new_chain = None
         
         # We're only looking for chains longer than ours
         max_length = len(self.chain)
         
+        print(f"Resolving conflicts with {len(neighbours)} nodes")
+        
         # Grab and verify the chains from all the nodes in our network
         for node in neighbours:
-            response = requests.get(f'http://{node}/chain')
-            
-            if response.status_code == 200:
-                length = response.json()['length']
-                chain = response.json()['chain']
+            try:
+                print(f"Checking node: {node}")
+                response = requests.get(f'http://{node}/chain', timeout=5)
                 
-                # Check if the length is longer and the chain is valid
-                if length > max_length and self.valid_chain(chain):
-                    max_length = length
-                    new_chain = chain
+                if response.status_code == 200:
+                    response_data = response.json()
+                    if 'data' in response_data and 'chain' in response_data['data']:
+                        chain_data = response_data['data']
+                        length = chain_data.get('chain_length', 0)
+                        chain = chain_data.get('chain', [])
+                        
+                        print(f"Node {node} chain length: {length}")
+                        
+                        # Check if the length is longer and the chain is valid
+                        if length > max_length and self.valid_chain(chain):
+                            print(f"Found longer valid chain from {node}")
+                            max_length = length
+                            new_chain = chain
+            except RequestException as e:
+                print(f"Error connecting to node {node}: {str(e)}")
+                continue
         
         # Replace our chain if we discovered a new, valid chain longer than ours
         if new_chain:
+            print(f"Replacing chain with new chain of length {len(new_chain)}")
             self.chain = new_chain
+            # Save to database
+            self.blocks.delete_many({})
+            for block in new_chain:
+                self.blocks.insert_one(block)
             return True
         
+        print("No longer valid chain found")
         return False

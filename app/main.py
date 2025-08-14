@@ -28,12 +28,18 @@ app = FastAPI(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Enable CORS
+# Enable CORS middleware configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",  # React web
+        "http://localhost:19006",  # Expo web
+        "exp://*",                # All Expo apps
+        "http://*",               # Any HTTP origin (for development)
+        "https://*"               # Any HTTPS origin (for production)
+    ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -273,33 +279,86 @@ async def get_blockchain():
     status_code=status.HTTP_201_CREATED,
     tags=["Nodes"]
 )
-async def register_nodes(nodes: NodeRegistration):
+async def register_nodes(nodes: NodeRegistration, request: Request):
     """
     Register new nodes with the network
     
     - **nodes**: List of node addresses (e.g., ['http://192.168.0.5:5000'])
     """
-    try:
-        registered_nodes = []
-        for node in nodes.nodes:
+    if not nodes.nodes:
+        # If no nodes provided, auto-register the requesting node
+        client_host = request.client.host
+        client_port = request.url.port or 8000
+        
+        # Get the server's actual IP address for mobile access
+        import socket
+        hostname = socket.gethostname()
+        server_ip = socket.gethostbyname(hostname)
+        
+        # Use the server's IP instead of client's IP for mobile access
+        nodes.nodes = [f"http://{server_ip}:{client_port}"]
+    
+    registered_nodes = []
+    for node in nodes.nodes:
+        try:
+            # Basic URL formatting
+            if not node.startswith(('http://', 'https://')):
+                node = f"http://{node}"
+                
+            # Register the node
             blockchain.register_node(node)
             registered_nodes.append(node)
-        
-        return NodeListResponse.success(
-            description=f"Successfully registered {len(registered_nodes)} node(s)",
-            data={
-                "nodes": list(blockchain.nodes),
-                "new_nodes": registered_nodes,
-                "total_nodes": len(blockchain.nodes)
-            },
-            code="MSG_0030"
-        )
-        
-    except ValueError as e:
+            logger.info(f"Registered new node: {node}")
+            
+            # Broadcast the new node to other nodes
+            for peer in blockchain.nodes:
+                if peer != node:  # Don't broadcast to self
+                    try:
+                        requests.post(
+                            f"{peer}/nodes/register",
+                            json={"nodes": [node]},
+                            timeout=2
+                        )
+                    except requests.RequestException:
+                        continue
+            
+        except Exception as e:
+            logger.error(f"Error registering node {node}: {str(e)}")
+            continue
+    
+    if not registered_nodes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="No valid nodes were registered"
         )
+    
+    return NodeListResponse.success(
+        description=f"Successfully registered {len(registered_nodes)} node(s)",
+        data={
+            "nodes": registered_nodes,
+            "total_nodes": len(blockchain.nodes)
+        },
+        code="MSG_0030"
+    )
+
+@app.get(
+    "/nodes",
+    response_model=NodeListResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Nodes"]
+)
+async def list_nodes():
+    """
+    List all registered nodes
+    """
+    return NodeListResponse.success(
+        description="List of registered nodes",
+        data={
+            "nodes": list(blockchain.nodes),
+            "total_nodes": len(blockchain.nodes)
+        },
+        code="MSG_0031"
+    )
 
 @app.get(
     "/nodes/resolve",
@@ -315,44 +374,49 @@ async def resolve_conflicts():
     if a longer valid chain is found.
     """
     try:
+        # Reload the chain to ensure we have the latest data
+        blockchain._load_from_database()
+        
+        # Resolve conflicts with other nodes
         replaced = blockchain.resolve_conflicts()
         
-        # Create a copy of the chain with hashes
-        chain_with_hashes = []
+        # Prepare the chain data for response
+        chain_data = []
         for block in blockchain.chain:
-            block_copy = block.copy()
-            block_copy['hash'] = blockchain.hash(block)
-            chain_with_hashes.append(block_copy)
+            block_copy = dict(block)
+            # Remove MongoDB _id if present
+            block_copy.pop('_id', None)
+            # Ensure transactions are properly formatted
+            if 'transactions' in block_copy and block_copy['transactions']:
+                block_copy['transactions'] = [
+                    {k: v for k, v in tx.items() if k != '_id'}
+                    for tx in block_copy['transactions']
+                ]
+            chain_data.append(block_copy)
         
-        chain_response = ChainResponse(
-            chain=chain_with_hashes,
-            length=len(chain_with_hashes)
-        )
+        # Create the response data
+        response_data = {
+            "chain": chain_data,
+            "chain_length": len(chain_data),
+            "total_transactions": sum(len(block.get('transactions', [])) for block in chain_data)
+        }
         
         if replaced:
             return ChainListResponse.success(
                 description="Chain was replaced with a longer valid chain",
-                data={
-                    "chain": chain_with_hashes,
-                    "replaced": True,
-                    "new_chain_length": len(chain_with_hashes)
-                },
+                data=response_data,
                 code="MSG_0031"
             )
         else:
             return ChainListResponse.success(
-                description="Chain is authoritative (no longer chain found)",
-                data={
-                    "chain": chain_with_hashes,
-                    "replaced": False,
-                    "current_chain_length": len(chain_with_hashes)
-                },
+                description="Local chain is authoritative (no longer chain found)",
+                data=response_data,
                 code="MSG_0032"
             )
             
     except Exception as e:
-        logger.error(f"Error resolving conflicts: {str(e)}")
+        logger.error(f"Error resolving conflicts: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error resolving blockchain conflicts"
+            detail=f"Error resolving blockchain conflicts: {str(e)}"
         )
