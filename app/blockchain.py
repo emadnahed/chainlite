@@ -4,8 +4,11 @@ from time import time
 from typing import List, Dict, Any, Optional
 from uuid import uuid4
 from urllib.parse import urlparse
+import logging
 import requests
 from .database import db
+
+logger = logging.getLogger(__name__)
 
 class Blockchain:
     def __init__(self):
@@ -36,8 +39,8 @@ class Blockchain:
         # Create a clean block dictionary
         block = {
             'index': len(self.chain) + 1,
-            'timestamp': time(),
-            'transactions': [dict(tx) for tx in self.current_transactions],  # Create deep copy
+            'timestamp': int(time() * 1000),
+            'transactions': [dict(tx) for tx in self.current_transactions],
             'proof': proof,
             'previous_hash': previous_hash or self.hash(self.chain[-1]) if self.chain else None,
         }
@@ -74,7 +77,14 @@ class Blockchain:
         self.chain.append(block)
         return block
     
-    def new_transaction(self, sender: str, recipient: str, amount: float) -> int:
+    def new_transaction(
+        self,
+        sender: str,
+        recipient: str,
+        amount: float,
+        signature: Optional[str] = None,
+        timestamp_ms: Optional[int] = None,
+    ) -> int:
         """
         Creates a new transaction to go into the next mined Block
         
@@ -83,11 +93,30 @@ class Blockchain:
         :param amount: Amount
         :return: The index of the Block that will hold this transaction
         """
-        self.current_transactions.append({
+        tx: Dict[str, Any] = {
             'sender': sender,
             'recipient': recipient,
             'amount': amount,
-        })
+        }
+        if signature is not None:
+            tx['signature'] = signature
+        if timestamp_ms is None:
+            timestamp_ms = int(time() * 1000)
+        tx['timestamp'] = timestamp_ms
+        # Deterministic transaction hash
+        try:
+            tx_for_hash = {
+                'sender': sender,
+                'recipient': recipient,
+                'amount': amount,
+                'signature': signature or '',
+                'timestamp': timestamp_ms,
+            }
+            tx_string = json.dumps(tx_for_hash, sort_keys=True)
+            tx['hash'] = hashlib.sha256(tx_string.encode()).hexdigest()
+        except Exception:
+            pass
+        self.current_transactions.append(tx)
         return self.last_block['index'] + 1
     
     @property

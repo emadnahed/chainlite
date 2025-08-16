@@ -62,11 +62,6 @@ Each block contains:
 
 ## 🔧 Getting Started
 
-### 1. Clone the repo
-```bash
-git clone https://github.com/your-username/chainlite.git
-cd chainlite
-````
 
 ### 2. Install dependencies
 
@@ -96,9 +91,27 @@ pytest
 
 ## 🐳 Run with Docker
 
+Build and run the API only:
 ```bash
 docker build -t chainlite .
-docker run -p 8000:8000 chainlite
+docker run --env MONGODB_URI='mongodb://host.docker.internal:27017/chainlite' -p 8000:8000 chainlite
+```
+
+Or run the full stack (API + MongoDB) with Docker Compose:
+```bash
+cp .env.example .env  # prepare non-secret defaults for Compose
+docker compose up --build
+```
+- API: http://localhost:8000
+- MongoDB: accessible inside the network as mongo:27017
+
+Security note:
+- .env is in .gitignore. Never commit secrets.
+- For production, inject secrets via your CI/CD, Docker secrets, or platform env vars.
+
+To stop and clean up:
+```bash
+docker compose down
 ```
 
 ---

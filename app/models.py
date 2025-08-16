@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import List, Dict, Any, Optional, Generic, TypeVar, Union
+import re
 from datetime import datetime
 from enum import Enum
 
@@ -56,18 +57,27 @@ class Transaction(BaseModel):
     sender: str = Field(..., description="Address of the sender")
     recipient: str = Field(..., description="Address of the recipient")
     amount: float = Field(..., gt=0, description="Transaction amount (must be positive)")
+    signature: str = Field(..., min_length=1, description="Transaction signature or id")
+    timestamp: int = Field(..., description="Epoch milliseconds when the tx was created")
+
+    @validator('sender', 'recipient')
+    def validate_address(cls, v: str) -> str:
+        if not isinstance(v, str) or not re.match(r'^0x[a-fA-F0-9]{6,}$', v):
+            raise ValueError('Invalid address format')
+        return v
 
 class Block(BaseModel):
     index: int = Field(..., description="The block index in the blockchain")
-    timestamp: float = Field(..., description="Unix timestamp of when the block was created")
+    timestamp: int = Field(..., description="Epoch milliseconds when the block was created")
     transactions: List[Transaction] = Field(..., description="List of transactions in the block")
-    proof: int = Field(..., description="The proof of work number that was required to mine this block")
+    nonce: int = Field(..., description="The proof-of-work nonce")
     previous_hash: Optional[str] = Field(None, description="Hash of the previous block in the chain")
     hash: Optional[str] = Field(None, description="Hash of the current block")
 
 class ChainResponse(BaseModel):
     chain: List[Block] = Field(..., description="List of blocks in the blockchain")
-    length: int = Field(..., description="Number of blocks in the blockchain")
+    chain_length: int = Field(..., description="Number of blocks in the blockchain")
+    total_transactions: Optional[int] = Field(None, description="Total transactions across all blocks")
 
 class NodeRegistration(BaseModel):
     nodes: List[str] = Field(..., min_items=1, description="List of node addresses to register")
@@ -76,7 +86,8 @@ class MiningResponse(BaseModel):
     message: str = Field(..., description="Status message")
     index: int = Field(..., description="Index of the newly mined block")
     transactions: List[Transaction] = Field(..., description="List of transactions included in the block")
-    proof: int = Field(..., description="The proof of work number that was used to mine this block")
+    nonce: int = Field(..., description="The proof-of-work nonce used to mine this block")
+    hash: str = Field(..., description="Hash of the newly mined block")
     previous_hash: str = Field(..., description="Hash of the previous block in the chain")
 
 # Response Models

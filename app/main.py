@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Query, Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from uuid import uuid4
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 import logging
+import requests
 
 from .blockchain import Blockchain
 from .models import (
@@ -53,40 +54,43 @@ blockchain = Blockchain()
 @app.exception_handler(ValueError)
 async def value_error_exception_handler(request: Request, exc: ValueError):
     logger.error(f"ValueError: {str(exc)}")
-    error_response = ErrorResponse.error(
-        description=str(exc) or "Invalid request data",
-        code="ERR_400",
-        http_status="BAD_REQUEST"
-    )
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
-        content=error_response.dict()
+        content={
+            "error": {
+                "code": "bad_request",
+                "message": str(exc) or "Invalid request data",
+                "details": {}
+            }
+        }
     )
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     logger.error(f"HTTPException: {str(exc.detail)}")
-    error_response = ErrorResponse.error(
-        description=str(exc.detail),
-        code=f"HTTP_{exc.status_code}",
-        http_status=exc.status_code
-    )
     return JSONResponse(
         status_code=exc.status_code,
-        content=error_response.dict()
+        content={
+            "error": {
+                "code": f"http_{exc.status_code}",
+                "message": str(exc.detail),
+                "details": {}
+            }
+        }
     )
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unexpected error: {str(exc)}", exc_info=True)
-    error_response = ErrorResponse.error(
-        description="An unexpected error occurred",
-        code="ERR_500",
-        http_status="INTERNAL_SERVER_ERROR"
-    )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=error_response.dict()
+        content={
+            "error": {
+                "code": "internal_error",
+                "message": "An unexpected error occurred",
+                "details": {}
+            }
+        }
     )
 
 @app.get(
@@ -121,45 +125,29 @@ async def read_root():
 
 @app.post(
     "/transactions",
-    response_model=TransactionResponse,
     status_code=status.HTTP_201_CREATED,
     tags=["Transactions"]
 )
 async def create_transaction(transaction: Transaction):
-    """
-    Create a new transaction to be added to the next mined Block
-    
-    - **sender**: Address of the sender
-    - **recipient**: Address of the recipient
-    - **amount**: Amount to transfer (must be positive)
-    """
+    """Create a new transaction and return the raw Transaction object."""
     try:
-        # Create a new transaction
-        index = blockchain.new_transaction(
+        blockchain.new_transaction(
             sender=transaction.sender,
             recipient=transaction.recipient,
-            amount=transaction.amount
+            amount=transaction.amount,
+            signature=transaction.signature,
+            timestamp_ms=transaction.timestamp,
         )
-        
-        return TransactionResponse.success(
-            description=f"Transaction will be added to Block {index}",
-            data={"transaction": transaction.dict(), "block_index": index},
-            code="MSG_0027"
-        )
-        
+        return transaction.dict()
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 @app.get(
     "/mine",
-    response_model=BlockResponse,
     status_code=status.HTTP_200_OK,
     tags=["Mining"]
 )
-async def mine_block():
+async def mine_block(miner_address: Optional[str] = Query(None)):
     """
     Mine a new block by performing proof of work
     
@@ -174,11 +162,18 @@ async def mine_block():
         last_proof = last_block['proof']
         proof = blockchain.proof_of_work(last_proof)
 
+        # Validate miner address if provided
+        reward_recipient = miner_address or node_identifier
+        if miner_address is not None:
+            import re
+            if not re.match(r'^0x[a-fA-F0-9]{6,}$', miner_address):
+                raise HTTPException(status_code=400, detail="Invalid miner address format")
         # Create a reward transaction for the miner
         blockchain.new_transaction(
-            sender="0",  # This represents that this node has mined a new coin
-            recipient=node_identifier,
-            amount=1.0,  # Mining reward
+            sender="0",
+            recipient=reward_recipient,
+            amount=1.0,
+            signature="",
         )
 
         # Forge the new Block by adding it to the chain
@@ -204,17 +199,16 @@ async def mine_block():
         
         # Prepare block for response
         block_for_response = serialize_doc(block)
-        block_for_response['hash'] = blockchain.hash(block)
-        
-        return BlockResponse.success(
-            description="New block successfully mined",
-            data={
-                "block": block_for_response,
-                "miner": node_identifier,
-                "reward": 1.0
-            },
-            code="MSG_0028"
-        )
+        block_hash = blockchain.hash(block)
+        block_for_response['hash'] = block_hash
+        return {
+            "message": "New block forged",
+            "index": block_for_response.get("index"),
+            "transactions": block_for_response.get("transactions", []),
+            "nonce": block_for_response.get("proof"),
+            "hash": block_hash,
+            "previous_hash": block_for_response.get("previous_hash"),
+        }
         
     except Exception as e:
         logger.error(f"Error mining block: {str(e)}")
@@ -225,7 +219,6 @@ async def mine_block():
 
 @app.get(
     "/chain",
-    response_model=ChainListResponse,
     status_code=status.HTTP_200_OK,
     tags=["Blockchain"]
 )
@@ -239,11 +232,14 @@ async def get_blockchain():
         # Reload the chain from database to ensure we have the latest data
         blockchain._load_from_database()
         
-        # Convert blocks to include their hashes
+        # Convert blocks to include their hashes and mapped nonce
         chain_with_hashes = []
         for block in blockchain.chain:
             # Create a clean copy of the block
             block_dict = dict(block)
+            # Map proof -> nonce for API stability
+            if 'proof' in block_dict:
+                block_dict['nonce'] = block_dict.pop('proof')
             # Add the hash
             block_dict['hash'] = blockchain.hash(block)
             # Ensure transactions are properly serialized
@@ -256,15 +252,7 @@ async def get_blockchain():
             block_dict.pop('_id', None)
             chain_with_hashes.append(block_dict)
             
-        return ChainListResponse.success(
-            description="Blockchain retrieved successfully",
-            data={
-                "chain": chain_with_hashes,
-                "chain_length": len(chain_with_hashes),
-                "total_transactions": sum(len(block.get('transactions', [])) for block in chain_with_hashes)
-            },
-            code="MSG_0029"
-        )
+        return {"data": {"chain": chain_with_hashes}}
         
     except Exception as e:
         logger.error(f"Error retrieving blockchain: {str(e)}")
@@ -275,7 +263,6 @@ async def get_blockchain():
 
 @app.post(
     "/nodes/register",
-    response_model=NodeListResponse,
     status_code=status.HTTP_201_CREATED,
     tags=["Nodes"]
 )
@@ -315,7 +302,7 @@ async def register_nodes(nodes: NodeRegistration, request: Request):
                 if peer != node:  # Don't broadcast to self
                     try:
                         requests.post(
-                            f"{peer}/nodes/register",
+                            f"http://{peer}/nodes/register",
                             json={"nodes": [node]},
                             timeout=2
                         )
@@ -332,18 +319,13 @@ async def register_nodes(nodes: NodeRegistration, request: Request):
             detail="No valid nodes were registered"
         )
     
-    return NodeListResponse.success(
-        description=f"Successfully registered {len(registered_nodes)} node(s)",
-        data={
-            "nodes": registered_nodes,
-            "total_nodes": len(blockchain.nodes)
-        },
-        code="MSG_0030"
-    )
+    return {
+        "message": "New nodes have been added",
+        "total_nodes": [f"http://{addr}" if not str(addr).startswith("http") else str(addr) for addr in list(blockchain.nodes)]
+    }
 
 @app.get(
     "/nodes",
-    response_model=NodeListResponse,
     status_code=status.HTTP_200_OK,
     tags=["Nodes"]
 )
@@ -351,18 +333,10 @@ async def list_nodes():
     """
     List all registered nodes
     """
-    return NodeListResponse.success(
-        description="List of registered nodes",
-        data={
-            "nodes": list(blockchain.nodes),
-            "total_nodes": len(blockchain.nodes)
-        },
-        code="MSG_0031"
-    )
+    return {"data": {"nodes": [f"http://{addr}" if not str(addr).startswith("http") else str(addr) for addr in list(blockchain.nodes)]}}
 
 @app.get(
     "/nodes/resolve",
-    response_model=ChainListResponse,
     status_code=status.HTTP_200_OK,
     tags=["Consensus"]
 )
@@ -402,17 +376,9 @@ async def resolve_conflicts():
         }
         
         if replaced:
-            return ChainListResponse.success(
-                description="Chain was replaced with a longer valid chain",
-                data=response_data,
-                code="MSG_0031"
-            )
+            return {"message": "Chain was replaced", "chain": chain_data}
         else:
-            return ChainListResponse.success(
-                description="Local chain is authoritative (no longer chain found)",
-                data=response_data,
-                code="MSG_0032"
-            )
+            return {"message": "Local chain is authoritative"}
             
     except Exception as e:
         logger.error(f"Error resolving conflicts: {str(e)}", exc_info=True)
@@ -420,3 +386,150 @@ async def resolve_conflicts():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error resolving blockchain conflicts: {str(e)}"
         )
+
+# New endpoints
+@app.get("/pending_tx", tags=["Transactions"])
+async def get_pending_transactions():
+    return {"transactions": blockchain.current_transactions}
+
+@app.get("/balance/{address}", tags=["Wallet"])
+async def get_balance(address: str = Path(..., regex=r"^0x[a-fA-F0-9]{6,}$")):
+    sent = 0.0
+    received = 0.0
+    for block in blockchain.chain:
+        for tx in block.get("transactions", []):
+            if tx.get("sender") == address:
+                sent += float(tx.get("amount", 0))
+            if tx.get("recipient") == address:
+                received += float(tx.get("amount", 0))
+    for tx in blockchain.current_transactions:
+        if tx.get("sender") == address:
+            sent += float(tx.get("amount", 0))
+    return {"balance": max(received - sent, 0.0)}
+
+@app.get("/blocks/latest", tags=["Blockchain"])
+async def get_latest_blocks(limit: int = Query(10, ge=1, le=100)):
+    blocks = blockchain.chain[-limit:][::-1]
+    resp: List[Dict[str, Any]] = []
+    for b in blocks:
+        bd = dict(b)
+        if 'proof' in bd:
+            bd['nonce'] = bd.pop('proof')
+        bd['hash'] = blockchain.hash(b)
+        bd.pop('_id', None)
+        resp.append(bd)
+    return {"data": {"blocks": resp}}
+
+@app.get("/blocks/{height}", tags=["Blockchain"])
+async def get_block_by_height(height: int = Path(..., ge=1)):
+    for b in blockchain.chain:
+        if b.get('index') == height:
+            bd = dict(b)
+            if 'proof' in bd:
+                bd['nonce'] = bd.pop('proof')
+            bd['hash'] = blockchain.hash(b)
+            bd.pop('_id', None)
+            return {"data": {"block": bd}}
+    raise HTTPException(status_code=404, detail="Block not found")
+
+@app.get("/transactions/latest", tags=["Transactions"])
+async def get_latest_transactions(limit: int = Query(20, ge=1, le=100)):
+    # Pull the latest mined transactions from the DB
+    cursor = blockchain.transactions.find().sort([("timestamp", -1)]).limit(limit)
+    txs = []
+    for tx in cursor:
+        tx = {k: (str(v) if k == '_id' else v) for k, v in dict(tx).items()}
+        tx.pop('_id', None)
+        txs.append(tx)
+    return {"data": {"transactions": txs}}
+
+@app.get("/transactions/{hash}", tags=["Transactions"])
+async def get_transaction_by_hash(hash: str):
+    # Search pending
+    for tx in blockchain.current_transactions:
+        if tx.get('hash') == hash:
+            return {"data": {"transaction": tx}}
+    # Search confirmed
+    found = blockchain.transactions.find_one({"hash": hash})
+    if found:
+        found = {k: (str(v) if k == '_id' else v) for k, v in dict(found).items()}
+        found.pop('_id', None)
+        return {"data": {"transaction": found}}
+    raise HTTPException(status_code=404, detail="Transaction not found")
+
+@app.get("/address/{address}/transactions", tags=["Transactions"])
+async def get_transactions_by_address(
+    address: str = Path(..., regex=r"^0x[a-fA-F0-9]{6,}$"),
+    limit: int = Query(20, ge=1, le=100),
+    before: Optional[int] = Query(None, description="Return txs before this timestamp (ms)"),
+):
+    query: Dict[str, Any] = {"$or": [{"sender": address}, {"recipient": address}]}
+    if before is not None:
+        query["timestamp"] = {"$lt": before}
+    cursor = blockchain.transactions.find(query).sort([("timestamp", -1)]).limit(limit)
+    txs: List[Dict[str, Any]] = []
+    for tx in cursor:
+        tx = {k: (str(v) if k == '_id' else v) for k, v in dict(tx).items()}
+        tx.pop('_id', None)
+        txs.append(tx)
+    return {"data": {"transactions": txs}}
+
+@app.get("/mining/status", tags=["Mining"])
+async def mining_status():
+    # Minimal stub metrics; PoW loop isn't persistent here
+    last = blockchain.last_block if blockchain.chain else None
+    return {
+        "hashRate": 0,
+        "difficulty": 4,
+        "currentTarget": "0000" + "f" * 60,
+        "nonceAttempts": 0,
+        "inProgress": False,
+        "lastBlock": {
+            "index": last.get("index") if last else 0,
+            "hash": blockchain.hash(last) if last else "",
+            "timestamp": last.get("timestamp") if last else 0,
+        },
+    }
+
+@app.delete("/nodes/{node_id}", tags=["Nodes"])
+async def unregister_node(node_id: str = Path(..., description="URL-safe identifier of a node (host:port or full URL)")):
+    # Normalize to netloc (host:port)
+    from urllib.parse import urlparse
+    parsed = urlparse(node_id if node_id.startswith(('http://', 'https://')) else f"http://{node_id}")
+    netloc = parsed.netloc
+    if netloc in blockchain.nodes:
+        blockchain.nodes.remove(netloc)
+        try:
+            blockchain.node_collection.delete_one({"address": netloc})
+        except Exception:
+            pass
+    return {"message": "Node(s) removed", "total_nodes": [f"http://{addr}" for addr in list(blockchain.nodes)]}
+
+@app.post("/nodes/unregister", tags=["Nodes"])
+async def unregister_nodes(body: Dict[str, List[str]]):
+    nodes = body.get("nodes", []) if isinstance(body, dict) else []
+    from urllib.parse import urlparse
+    removed: List[str] = []
+    for node in nodes:
+        parsed = urlparse(node if node.startswith(('http://', 'https://')) else f"http://{node}")
+        netloc = parsed.netloc
+        if netloc in blockchain.nodes:
+            blockchain.nodes.remove(netloc)
+            removed.append(netloc)
+            try:
+                blockchain.node_collection.delete_one({"address": netloc})
+            except Exception:
+                pass
+    return {"message": "Node(s) removed", "total_nodes": [f"http://{addr}" for addr in list(blockchain.nodes)]}
+
+@app.get("/blocks/hash/{hash}", tags=["Blockchain"])
+async def get_block_by_hash(hash: str):
+    for b in blockchain.chain:
+        if blockchain.hash(b) == hash:
+            bd = dict(b)
+            if 'proof' in bd:
+                bd['nonce'] = bd.pop('proof')
+            bd['hash'] = hash
+            bd.pop('_id', None)
+            return {"data": {"block": bd}}
+    raise HTTPException(status_code=404, detail="Block not found")
