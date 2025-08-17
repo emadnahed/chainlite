@@ -23,10 +23,13 @@ class Config:
     @classmethod
     def validate(cls):
         """Validate required configuration."""
+        print(f"[DEBUG] Raw MONGODB_URI: {cls.MONGODB_URI}")
         if not cls.MONGODB_URI:
             raise ValueError("MONGODB_URI environment variable is not set")
+        if not isinstance(cls.MONGODB_URI, str):
+            raise ValueError(f"MONGODB_URI must be a string, got {type(cls.MONGODB_URI)}")
         if not cls.MONGODB_URI.startswith(('mongodb://', 'mongodb+srv://')):
-            raise ValueError("MONGODB_URI must start with 'mongodb://' or 'mongodb+srv://'")
+            raise ValueError(f"MONGODB_URI must start with 'mongodb://' or 'mongodb+srv://', got: {cls.MONGODB_URI[:20]}...")
 
 # Create and validate configuration
 config = Config()
