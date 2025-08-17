@@ -17,8 +17,19 @@ class MongoDB:
     def _initialize(self):
         """Initialize MongoDB connection if not already initialized."""
         if not self._initialized:
-            self._client = MongoClient(config.MONGODB_URI)
-            self._db = self._client[config.MONGODB_DB_NAME]
+            try:
+                if not config.MONGODB_URI.startswith(('mongodb://', 'mongodb+srv://')):
+                    raise ValueError(f"Invalid MongoDB URI scheme. Must start with 'mongodb://' or 'mongodb+srv://'")
+                
+                print(f"Connecting to MongoDB with URI: {config.MONGODB_URI[:config.MONGODB_URI.find('@')+1]}*****")
+                self._client = MongoClient(config.MONGODB_URI, serverSelectionTimeoutMS=5000)
+                # Test the connection
+                self._client.server_info()
+                self._db = self._client[config.MONGODB_DB_NAME]
+                print("Successfully connected to MongoDB")
+            except Exception as e:
+                print(f"Failed to connect to MongoDB: {str(e)}")
+                raise
             
             # Create indexes for better query performance
             self.blocks = self._db.blocks
