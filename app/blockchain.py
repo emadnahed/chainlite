@@ -6,7 +6,9 @@ from uuid import uuid4
 from urllib.parse import urlparse
 import logging
 import requests
-from .database import db
+from .database import get_database
+
+db = get_database()
 
 logger = logging.getLogger(__name__)
 

@@ -12,17 +12,17 @@ from .models import (
     TransactionResponse, BlockResponse, ChainListResponse, NodeListResponse,
     ErrorResponse, BaseResponse
 )
-from .database import MongoDB
+from .database import get_database
 
-# Initialize MongoDB connection
-mongo_db = MongoDB()
+# Get database instance
+db = get_database()
 
 # Instantiate the Node
 app = FastAPI(
     title="ChainLite API",
     description="A minimal blockchain API built with FastAPI",
     version="0.1.0",
-    on_shutdown=[mongo_db.close_connection]
+    on_shutdown=[db.close_connection]
 )
 
 # Configure logging

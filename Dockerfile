@@ -1,7 +1,11 @@
 FROM python:3.10-slim
 
+# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    MONGODB_URI=mongodb://mongo:27017/chainlite \
+    MONGODB_DB_NAME=chainlite
 
 WORKDIR /app
 
