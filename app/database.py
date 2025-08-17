@@ -28,7 +28,7 @@ class MongoDB:
                     safe_uri = mongo_uri[:mongo_uri.find('@')+1] + '*****'
                 print(f"Connecting to MongoDB with URI: {safe_uri}")
                 
-                # Connection with explicit TLS settings
+                # Connection with simplified TLS settings
                 self._client = MongoClient(
                     mongo_uri,
                     serverSelectionTimeoutMS=15000,
@@ -39,9 +39,6 @@ class MongoDB:
                     tls=True,
                     tlsAllowInvalidCertificates=True,
                     tlsInsecure=True,
-                    tlsDisableOCSPEndpointCheck=True,
-                    ssl=True,
-                    ssl_cert_reqs=None,
                     retryReads=True,
                     maxIdleTimeMS=60000,
                     maxPoolSize=50,
