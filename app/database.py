@@ -19,21 +19,19 @@ class MongoDB:
         """Initialize MongoDB connection if not already initialized."""
         if not self._initialized:
             try:
-                # URL-encode the username and password
-                from urllib.parse import urlparse, urlunparse
-                parsed = urlparse(config.MONGODB_URI)
-                if parsed.username and parsed.password:
-                    # Rebuild the URI with encoded credentials
-                    netloc = f"{quote_plus(parsed.username)}:{quote_plus(parsed.password)}@{parsed.hostname}"
-                    if parsed.port:
-                        netloc += f":{parsed.port}"
-                    safe_uri = urlunparse(parsed._replace(netloc=netloc))
-                else:
-                    safe_uri = config.MONGODB_URI
-
-                print(f"Connecting to MongoDB with URI: {safe_uri[:safe_uri.find('@')+1]}*****")
+                # Use the URI directly - it should already be properly formatted
+                mongo_uri = config.MONGODB_URI
+                
+                # For logging purposes only - don't log the actual password
+                safe_uri = mongo_uri
+                if '@' in mongo_uri:
+                    safe_uri = mongo_uri[:mongo_uri.find('@')+1] + '*****'
+                
+                print(f"Connecting to MongoDB with URI: {safe_uri}")
+                
+                # Connect with the original URI
                 self._client = MongoClient(
-                    safe_uri,
+                    mongo_uri,
                     serverSelectionTimeoutMS=5000,
                     retryWrites=True,
                     w='majority',
