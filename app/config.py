@@ -7,6 +7,9 @@ load_dotenv()
 class Config:
     # MongoDB Configuration
     MONGODB_URI = os.getenv('MONGODB_URI')
+    # Handle case where the URI includes the variable name (happens in some environments)
+    if MONGODB_URI and 'MONGODB_URI=' in MONGODB_URI:
+        MONGODB_URI = MONGODB_URI.split('MONGODB_URI=', 1)[1]
     MONGODB_DB_NAME = os.getenv('MONGODB_DB_NAME', 'chainlite')
     
     # Application Settings
