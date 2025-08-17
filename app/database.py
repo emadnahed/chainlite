@@ -19,24 +19,25 @@ class MongoDB:
         """Initialize MongoDB connection if not already initialized."""
         if not self._initialized:
             try:
-                # Use the URI directly - it should already be properly formatted
+                # Get the MongoDB URI from config
                 mongo_uri = config.MONGODB_URI
                 
-                # For logging purposes only - don't log the actual password
+                # For logging purposes - don't log the actual password
                 safe_uri = mongo_uri
                 if '@' in mongo_uri:
                     safe_uri = mongo_uri[:mongo_uri.find('@')+1] + '*****'
-                
                 print(f"Connecting to MongoDB with URI: {safe_uri}")
                 
                 # Connect with the original URI
                 self._client = MongoClient(
                     mongo_uri,
-                    serverSelectionTimeoutMS=5000,
+                    serverSelectionTimeoutMS=10000,
                     retryWrites=True,
                     w='majority',
                     tls=True,
-                    tlsAllowInvalidCertificates=True
+                    tlsAllowInvalidCertificates=True,
+                    connectTimeoutMS=10000,
+                    socketTimeoutMS=45000
                 )
                 # Test the connection
                 self._client.server_info()
