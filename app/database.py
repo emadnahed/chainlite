@@ -18,15 +18,20 @@ class MongoDB:
         """Initialize MongoDB connection if not already initialized."""
         if not self._initialized:
             try:
-                if not config.MONGODB_URI.startswith(('mongodb://', 'mongodb+srv://')):
-                    raise ValueError(f"Invalid MongoDB URI scheme. Must start with 'mongodb://' or 'mongodb+srv://'")
-                
                 print(f"Connecting to MongoDB with URI: {config.MONGODB_URI[:config.MONGODB_URI.find('@')+1]}*****")
-                self._client = MongoClient(config.MONGODB_URI, serverSelectionTimeoutMS=5000)
+                self._client = MongoClient(
+                    config.MONGODB_URI,
+                    serverSelectionTimeoutMS=5000,
+                    retryWrites=True,
+                    w='majority',
+                    tls=True,
+                    tlsAllowInvalidCertificates=True
+                )
                 # Test the connection
                 self._client.server_info()
                 self._db = self._client[config.MONGODB_DB_NAME]
                 print("Successfully connected to MongoDB")
+                self._initialized = True
             except Exception as e:
                 print(f"Failed to connect to MongoDB: {str(e)}")
                 raise
