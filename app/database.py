@@ -1,4 +1,5 @@
 from typing import Optional, Dict, Any, List
+from urllib.parse import quote_plus
 from pymongo import MongoClient
 from pymongo.database import Database
 from .config import config
@@ -18,9 +19,21 @@ class MongoDB:
         """Initialize MongoDB connection if not already initialized."""
         if not self._initialized:
             try:
-                print(f"Connecting to MongoDB with URI: {config.MONGODB_URI[:config.MONGODB_URI.find('@')+1]}*****")
+                # URL-encode the username and password
+                from urllib.parse import urlparse, urlunparse
+                parsed = urlparse(config.MONGODB_URI)
+                if parsed.username and parsed.password:
+                    # Rebuild the URI with encoded credentials
+                    netloc = f"{quote_plus(parsed.username)}:{quote_plus(parsed.password)}@{parsed.hostname}"
+                    if parsed.port:
+                        netloc += f":{parsed.port}"
+                    safe_uri = urlunparse(parsed._replace(netloc=netloc))
+                else:
+                    safe_uri = config.MONGODB_URI
+
+                print(f"Connecting to MongoDB with URI: {safe_uri[:safe_uri.find('@')+1]}*****")
                 self._client = MongoClient(
-                    config.MONGODB_URI,
+                    safe_uri,
                     serverSelectionTimeoutMS=5000,
                     retryWrites=True,
                     w='majority',
