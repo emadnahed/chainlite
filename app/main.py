@@ -338,14 +338,26 @@ async def register_nodes(nodes: NodeRegistration, request: Request):
             continue
     
     if not registered_nodes:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No valid nodes were registered"
-        )
+        return {
+            "data": {},
+            "code": "ERR_0060",
+            "httpStatus": "BAD_REQUEST",
+            "description": "No valid nodes were registered"
+        }
+    
+    # Format node addresses consistently
+    formatted_nodes = [f"http://{addr}" if not str(addr).startswith("http") else str(addr) 
+                      for addr in list(blockchain.nodes)]
     
     return {
-        "message": "New nodes have been added",
-        "total_nodes": [f"http://{addr}" if not str(addr).startswith("http") else str(addr) for addr in list(blockchain.nodes)]
+        "data": {
+            "registered_nodes": registered_nodes,
+            "total_nodes": formatted_nodes,
+            "total_count": len(formatted_nodes)
+        },
+        "code": "MSG_0065",
+        "httpStatus": "CREATED",
+        "description": "Nodes registered successfully"
     }
 
 @app.get(
@@ -396,20 +408,26 @@ async def resolve_conflicts():
         response_data = {
             "chain": chain_data,
             "chain_length": len(chain_data),
-            "total_transactions": sum(len(block.get('transactions', [])) for block in chain_data)
+            "total_transactions": sum(len(block.get('transactions', [])) for block in chain_data),
+            "consensus_reached": not replaced,
+            "action_taken": "Chain was replaced" if replaced else "Local chain is authoritative"
         }
         
-        if replaced:
-            return {"message": "Chain was replaced", "chain": chain_data}
-        else:
-            return {"message": "Local chain is authoritative"}
+        return {
+            "data": response_data,
+            "code": "MSG_0066" if not replaced else "MSG_0067",
+            "httpStatus": "OK",
+            "description": "Local chain is authoritative" if not replaced else "Chain was replaced with a longer valid chain"
+        }
             
     except Exception as e:
         logger.error(f"Error resolving conflicts: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error resolving blockchain conflicts: {str(e)}"
-        )
+        return {
+            "data": {},
+            "code": "ERR_0061",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": f"Error resolving blockchain conflicts: {str(e)}"
+        }
 
 # New endpoints
 @app.get("/pending_tx", tags=["Transactions"])
