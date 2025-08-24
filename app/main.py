@@ -457,7 +457,21 @@ async def resolve_conflicts():
 # New endpoints
 @app.get("/pending_tx", tags=["Transactions"])
 async def get_pending_transactions():
-    return {"transactions": blockchain.current_transactions}
+    """
+    Get all pending transactions that are waiting to be included in a block.
+    
+    Returns:
+        A list of pending transactions with standardized response format
+    """
+    return {
+        "data": {
+            "transactions": blockchain.current_transactions,
+            "total_count": len(blockchain.current_transactions)
+        },
+        "code": "MSG_0068",
+        "httpStatus": "OK",
+        "description": "List of pending transactions retrieved successfully"
+    }
 
 @app.get("/balance/{address}", tags=["Wallet"])
 async def get_balance(address: str = Path(..., regex=r"^0x[a-fA-F0-9]{6,}$")):
