@@ -368,8 +368,33 @@ async def register_nodes(nodes: NodeRegistration, request: Request):
 async def list_nodes():
     """
     List all registered nodes
+    
+    Returns a list of all nodes currently registered in the network
     """
-    return {"data": {"nodes": [f"http://{addr}" if not str(addr).startswith("http") else str(addr) for addr in list(blockchain.nodes)]}}
+    try:
+        # Format node addresses consistently
+        formatted_nodes = [
+            f"http://{addr}" if not str(addr).startswith("http") else str(addr) 
+            for addr in list(blockchain.nodes)
+        ]
+        
+        return {
+            "data": {
+                "nodes": formatted_nodes,
+                "total_nodes": len(formatted_nodes)
+            },
+            "code": "MSG_0068",
+            "httpStatus": "OK",
+            "description": "List of registered nodes retrieved successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving node list: {str(e)}")
+        return {
+            "data": {},
+            "code": "ERR_0062",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": "Failed to retrieve node list"
+        }
 
 @app.get(
     "/nodes/resolve",
