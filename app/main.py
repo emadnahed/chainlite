@@ -555,22 +555,53 @@ async def get_transactions_by_address(
         txs.append(tx)
     return {"data": {"transactions": txs}}
 
-@app.get("/mining/status", tags=["Mining"])
+@app.get(
+    "/mining/status",
+    status_code=status.HTTP_200_OK,
+    tags=["Mining"]
+)
 async def mining_status():
-    # Minimal stub metrics; PoW loop isn't persistent here
-    last = blockchain.last_block if blockchain.chain else None
-    return {
-        "hashRate": 0,
-        "difficulty": 4,
-        "currentTarget": "0000" + "f" * 60,
-        "nonceAttempts": 0,
-        "inProgress": False,
-        "lastBlock": {
-            "index": last.get("index") if last else 0,
-            "hash": blockchain.hash(last) if last else "",
-            "timestamp": last.get("timestamp") if last else 0,
-        },
-    }
+    """
+    Get the current mining status
+    
+    Returns information about the current mining state including:
+    - Current hash rate
+    - Mining difficulty
+    - Current target
+    - Number of nonce attempts
+    - Whether mining is in progress
+    - Details about the last mined block
+    """
+    try:
+        last = blockchain.last_block if blockchain.chain else None
+        
+        return {
+            "data": {
+                "hashRate": 0,  # Could be enhanced to track actual hash rate
+                "difficulty": 4,  # Matches the proof of work difficulty
+                "currentTarget": "0000" + "f" * 60,  # Leading 4 zeros target
+                "nonceAttempts": 0,  # Could be enhanced to track actual attempts
+                "inProgress": False,  # Could be enhanced to track actual mining state
+                "lastBlock": {
+                    "index": last.get("index") if last else 0,
+                    "hash": blockchain.hash(last) if last else "",
+                    "timestamp": last.get("timestamp") if last else 0,
+                    "transactions_count": len(last.get("transactions", [])) if last else 0
+                }
+            },
+            "code": "MSG_0070",
+            "httpStatus": "OK",
+            "description": "Mining status retrieved successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting mining status: {str(e)}")
+        return {
+            "data": {},
+            "code": "ERR_0053",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": "Failed to retrieve mining status"
+        }
 
 @app.delete("/nodes/{node_id}", tags=["Nodes"])
 async def unregister_node(node_id: str = Path(..., description="URL-safe identifier of a node (host:port or full URL)")):
@@ -614,3 +645,52 @@ async def get_block_by_hash(hash: str):
             bd.pop('_id', None)
             return {"data": {"block": bd}}
     raise HTTPException(status_code=404, detail="Block not found")
+
+@app.get(
+    "/status",
+    status_code=status.HTTP_200_OK,
+    tags=["Blockchain"]
+)
+async def get_blockchain_status():
+    """
+    Get the current status of the blockchain
+    
+    Returns key metrics about the blockchain including:
+    - Chain length
+    - Number of pending transactions
+    - Number of connected nodes
+    - Mining difficulty
+    - Timestamp of the last block
+    """
+    try:
+        last_block = blockchain.last_block if blockchain.chain else None
+        
+        # Calculate total transactions across all blocks
+        total_transactions = sum(len(block.get('transactions', [])) for block in blockchain.chain)
+        
+        return {
+            "data": {
+                "chain_length": len(blockchain.chain),
+                "pending_transactions": len(blockchain.current_transactions),
+                "connected_nodes": len(blockchain.nodes),
+                "difficulty": 4,  # Matches the mining difficulty in mining_status
+                "last_block": {
+                    "index": last_block.get("index") if last_block else 0,
+                    "timestamp": last_block.get("timestamp") if last_block else 0,
+                    "transactions_count": len(last_block.get("transactions", [])) if last_block else 0
+                },
+                "total_transactions": total_transactions
+            },
+            "code": "MSG_0069",
+            "httpStatus": "OK",
+            "description": "Blockchain status retrieved successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting blockchain status: {str(e)}")
+        return {
+            "data": {},
+            "code": "ERR_0052",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": "Failed to retrieve blockchain status"
+        }
