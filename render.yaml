@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: chainlite
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.0
+      - key: MONGODB_URI
+        fromDatabase:
+          name: mongodb
+          property: connectionString
+      - key: PORT
+        value: 10000
+
+databases:
+  - name: mongodb
+    databaseName: chainlite
+    user: chainlite_user

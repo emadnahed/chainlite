@@ -95,33 +95,23 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get(
     "/",
-    response_model=BaseResponse[Dict[str, Any]],
     status_code=status.HTTP_200_OK,
     tags=["Root"]
 )
 async def read_root():
     """
-    Root endpoint that provides information about the API and available endpoints
+    Root endpoint that provides information about the API
     """
-    return BaseResponse.success(
-        description="Welcome to ChainLite - A Minimal Blockchain API",
-        data={
+    return {
+        "data": {
             "name": "ChainLite",
             "version": "1.0.0",
             "description": "A minimal blockchain implementation with RESTful API"
         },
-        meta={
-            "endpoints": [
-                {"method": "GET", "path": "/", "description": "API information"},
-                {"method": "GET", "path": "/chain", "description": "View the entire blockchain"},
-                {"method": "POST", "path": "/transactions", "description": "Create a new transaction"},
-                {"method": "GET", "path": "/mine", "description": "Mine a new block"},
-                {"method": "POST", "path": "/nodes/register", "description": "Register new nodes"},
-                {"method": "GET", "path": "/nodes/resolve", "description": "Resolve chain conflicts"}
-            ]
-        },
-        code="MSG_0001"
-    )
+        "code": "MSG_0001",
+        "httpStatus": "OK",
+        "description": "Welcome to ChainLite - A Minimal Blockchain API"
+    }
 
 @app.post(
     "/transactions",
