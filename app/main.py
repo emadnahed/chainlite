@@ -252,29 +252,38 @@ async def get_blockchain():
         for block in blockchain.chain:
             # Create a clean copy of the block
             block_dict = dict(block)
-            # Map proof -> nonce for API stability
-            if 'proof' in block_dict:
-                block_dict['nonce'] = block_dict.pop('proof')
-            # Add the hash
-            block_dict['hash'] = blockchain.hash(block)
-            # Ensure transactions are properly serialized
-            if 'transactions' in block_dict and block_dict['transactions']:
+            # Remove _id from transactions if they have it
+            if 'transactions' in block_dict and isinstance(block_dict['transactions'], list):
                 block_dict['transactions'] = [
                     {k: v for k, v in tx.items() if k != '_id'}
                     for tx in block_dict['transactions']
                 ]
             # Remove _id from the block itself
             block_dict.pop('_id', None)
+            # Ensure proof is mapped to nonce for consistency
+            if 'proof' in block_dict:
+                block_dict['nonce'] = block_dict.pop('proof')
             chain_with_hashes.append(block_dict)
             
-        return {"data": {"chain": chain_with_hashes}}
+        return {
+            "data": {
+                "chain": chain_with_hashes,
+                "chain_length": len(chain_with_hashes),
+                "total_transactions": sum(len(block.get('transactions', [])) for block in chain_with_hashes)
+            },
+            "code": "MSG_0064",
+            "httpStatus": "OK",
+            "description": "Blockchain retrieved successfully"
+        }
         
     except Exception as e:
         logger.error(f"Error retrieving blockchain: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve blockchain"
-        )
+        return {
+            "data": {},
+            "code": "ERR_0051",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": "Failed to retrieve blockchain"
+        }
 
 @app.post(
     "/nodes/register",
