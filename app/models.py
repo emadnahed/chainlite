@@ -16,8 +16,16 @@ class BaseResponse(BaseModel, Generic[T]):
     code: str
     httpStatus: str
     description: str
-    token: Optional[str] = ""
+    token: Optional[str] = None
     meta: Optional[Dict[str, Any]] = None
+
+    class Config:
+        json_encoders = {
+            # Add any custom JSON encoders if needed
+        }
+        json_exclude_unset = True  # Don't include fields that were not set
+        
+        json_exclude_defaults = True  # Don't include default values
 
     @classmethod
     def success(

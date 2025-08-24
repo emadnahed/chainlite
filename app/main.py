@@ -119,7 +119,7 @@ async def read_root():
     tags=["Transactions"]
 )
 async def create_transaction(transaction: Transaction):
-    """Create a new transaction and return the raw Transaction object."""
+    """Create a new transaction and return the transaction data in standard format."""
     try:
         blockchain.new_transaction(
             sender=transaction.sender,
@@ -128,9 +128,19 @@ async def create_transaction(transaction: Transaction):
             signature=transaction.signature,
             timestamp_ms=transaction.timestamp,
         )
-        return transaction.dict()
+        return {
+            "data": transaction.dict(),
+            "code": "MSG_0062",
+            "httpStatus": "OK",
+            "description": "Transaction created successfully"
+        }
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        return {
+            "data": {},
+            "code": "ERR_0040",
+            "httpStatus": "BAD_REQUEST",
+            "description": str(e)
+        }
 
 @app.get(
     "/mine",
