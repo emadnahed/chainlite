@@ -167,7 +167,13 @@ async def mine_block(miner_address: Optional[str] = Query(None)):
         if miner_address is not None:
             import re
             if not re.match(r'^0x[a-fA-F0-9]{6,}$', miner_address):
-                raise HTTPException(status_code=400, detail="Invalid miner address format")
+                return {
+                    "data": {},
+                    "code": "ERR_0041",
+                    "httpStatus": "BAD_REQUEST",
+                    "description": "Invalid miner address format"
+                }
+        
         # Create a reward transaction for the miner
         blockchain.new_transaction(
             sender="0",
@@ -201,8 +207,8 @@ async def mine_block(miner_address: Optional[str] = Query(None)):
         block_for_response = serialize_doc(block)
         block_hash = blockchain.hash(block)
         block_for_response['hash'] = block_hash
-        return {
-            "message": "New block forged",
+        
+        response_data = {
             "index": block_for_response.get("index"),
             "transactions": block_for_response.get("transactions", []),
             "nonce": block_for_response.get("proof"),
@@ -210,12 +216,21 @@ async def mine_block(miner_address: Optional[str] = Query(None)):
             "previous_hash": block_for_response.get("previous_hash"),
         }
         
+        return {
+            "data": response_data,
+            "code": "MSG_0063",
+            "httpStatus": "OK",
+            "description": "New block forged successfully"
+        }
+        
     except Exception as e:
         logger.error(f"Error mining block: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        return {
+            "data": {},
+            "code": "ERR_0050",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": f"Error mining block: {str(e)}"
+        }
 
 @app.get(
     "/chain",
