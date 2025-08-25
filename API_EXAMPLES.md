@@ -65,7 +65,24 @@ curl -X 'POST' \
 }'
 ```
 
-**Response:** Returns the created transaction object with auto-generated hash.
+**Response:**
+```json
+{
+  "data": {
+    "transaction": {
+      "sender": "0xabc123456789",
+      "recipient": "0xdef987654321",
+      "amount": 10.5,
+      "signature": "signed_payload_hex_or_base64",
+      "timestamp": 1712345678901,
+      "hash": "0423abce2a573da25474d4048eb95972887c2d5f8acb9f78856068effca5b22c"
+    }
+  },
+  "code": "MSG_0001",
+  "httpStatus": "CREATED",
+  "description": "Transaction created successfully"
+}
+```
 
 ## 3. Mine a New Block
 
@@ -91,15 +108,29 @@ curl -X 'GET' \
   -H 'accept: application/json'
 ```
 
-**Response Format:**
+**Response:**
 ```json
 {
-  "message": "New block forged",
-  "index": 2,
-  "transactions": [...],
-  "nonce": 12345,
-  "hash": "000abc123...",
-  "previous_hash": "000def456..."
+  "data": {
+    "message": "New block forged",
+    "index": 18,
+    "transactions": [
+      {
+        "sender": "0",
+        "recipient": "0xabc123456789",
+        "amount": 1.0,
+        "signature": "",
+        "timestamp": 1756119729276,
+        "hash": "3ffe4e3a972bd2750f9836a2771fef4de534091c13e86de7f2583d49166e0bc9"
+      }
+    ],
+    "nonce": 209765,
+    "hash": "8c96edf4f1e407cd3aceeba66778fe7675e4066b63992568a3b1ca6297fa75d6",
+    "previous_hash": "f3379a7b21c1a9e59abd0269402d3de214487189672adb6dd6f29b2baa4636a8"
+  },
+  "code": "MSG_0002",
+  "httpStatus": "CREATED",
+  "description": "Block mined successfully"
 }
 ```
 
@@ -115,21 +146,39 @@ curl -X 'GET' \
   -H 'accept: application/json'
 ```
 
-**Response Shape:**
+**Response:**
 ```json
 {
   "data": {
     "chain": [
       {
         "index": 1,
-        "timestamp": 1712345678901,
-        "transactions": [...],
-        "nonce": 100,
-        "previous_hash": null,
-        "hash": "0000..."
+        "timestamp": 1754173382.922078,
+        "transactions": [],
+        "proof": 100,
+        "previous_hash": null
+      },
+      {
+        "index": 2,
+        "timestamp": 1754173859.144962,
+        "transactions": [
+          {
+            "sender": "0",
+            "recipient": "3c2f8a00250646339c24eb5d4a60675d",
+            "amount": 1.0
+          }
+        ],
+        "proof": 35293,
+        "previous_hash": "474458693c0aedc7644b150cc7568027798d356cd0eef2afd81c2d56f5c5b606"
       }
-    ]
-  }
+      // ... more blocks
+    ],
+    "chain_length": 18,
+    "total_transactions": 24
+  },
+  "code": "MSG_0064",
+  "httpStatus": "OK",
+  "description": "Blockchain retrieved successfully"
 }
 ```
 
@@ -138,6 +187,26 @@ curl -X 'GET' \
 - If body `nodes` is empty or omitted, the server auto-registers itself using its IP and the request port for mobile-friendly access.
 - Each node can be provided with or without scheme; it will be normalized internally.
 - Successful registrations are broadcast to existing peers.
+
+**Response:**
+```json
+{
+  "data": {
+    "registered_nodes": [
+      "http://127.0.0.1:8002",
+      "http://127.0.0.1:8003"
+    ],
+    "total_nodes": [
+      "http://127.0.0.1:8002",
+      "http://127.0.0.1:8003",
+      "http://127.0.0.1:8001"
+    ],
+    "total_count": 3
+  },
+  "code": "MSG_0065",
+  "httpStatus": "CREATED",
+  "description": "Nodes registered successfully"
+}
 
 ```bash
 curl -X 'POST' \
@@ -162,27 +231,39 @@ curl -X 'GET' \
   -H 'accept: application/json'
 ```
 
-**Response (Chain Replaced):**
-```json
-{
-  "message": "Chain was replaced",
-  "chain": [
-    {
-      "index": 1,
-      "timestamp": 1712345678901,
-      "transactions": [...],
-      "nonce": 100,
-      "previous_hash": null,
-      "hash": "000..."
-    }
-  ]
-}
-```
-
 **Response (Local Chain Authoritative):**
 ```json
 {
-  "message": "Local chain is authoritative"
+  "data": {
+    "chain": [
+      // ... full chain data
+    ],
+    "chain_length": 18,
+    "total_transactions": 24,
+    "consensus_reached": true,
+    "action_taken": "Local chain is authoritative"
+  },
+  "code": "MSG_0066",
+  "httpStatus": "OK",
+  "description": "Local chain is authoritative"
+}
+```
+
+**Response (Chain Replaced):**
+```json
+{
+  "data": {
+    "chain": [
+      // ... full chain data from the network
+    ],
+    "chain_length": 20,
+    "total_transactions": 30,
+    "consensus_reached": true,
+    "action_taken": "Chain was replaced"
+  },
+  "code": "MSG_0067",
+  "httpStatus": "OK",
+  "description": "Chain was replaced with a longer valid chain"
 }
 ```
 
@@ -198,8 +279,16 @@ curl -X 'GET' \
 ```json
 {
   "data": {
-    "nodes": ["http://127.0.0.1:8002", "http://127.0.0.1:8003"]
-  }
+    "nodes": [
+      "http://127.0.0.1:8002",
+      "http://127.0.0.1:8003",
+      "http://127.0.0.1:8001"
+    ],
+    "total_nodes": 3
+  },
+  "code": "MSG_0068",
+  "httpStatus": "OK",
+  "description": "List of registered nodes retrieved successfully"
 }
 ```
 
@@ -212,6 +301,22 @@ curl -X 'DELETE' \
   'http://127.0.0.1:8000/nodes/127.0.0.1:8002' \
   -H 'accept: application/json'
 ```
+
+**Response:**
+```json
+{
+  "data": {
+    "removed_node": "127.0.0.1:8002",
+    "total_nodes": [
+      "http://127.0.0.1:8003",
+      "http://127.0.0.1:8001"
+    ],
+    "total_count": 2
+  },
+  "code": "MSG_0071",
+  "httpStatus": "OK",
+  "description": "Node unregistered successfully"
+}
 
 ## 9. Unregister Multiple Nodes
 
@@ -241,16 +346,13 @@ curl -X 'GET' \
 **Response:**
 ```json
 {
-  "transactions": [
-    {
-      "sender": "0xabc123456789",
-      "recipient": "0xdef987654321",
-      "amount": 10.5,
-      "signature": "signed_payload",
-      "timestamp": 1712345678901,
-      "hash": "abc123..."
-    }
-  ]
+  "data": {
+    "transactions": [],
+    "total_count": 0
+  },
+  "code": "MSG_0068",
+  "httpStatus": "OK",
+  "description": "List of pending transactions retrieved successfully"
 }
 ```
 
@@ -269,7 +371,7 @@ curl -X 'GET' \
 **Response:**
 ```json
 {
-  "balance": 25.5
+  "balance": 0.0
 }
 ```
 
@@ -292,15 +394,120 @@ curl -X 'GET' \
   "data": {
     "blocks": [
       {
-        "index": 2,
-        "timestamp": 1712345678901,
-        "transactions": [...],
-        "nonce": 12345,
-        "previous_hash": "000def456...",
-        "hash": "000abc123..."
+        "index": 18,
+        "timestamp": 1756119729276,
+        "transactions": [
+          {
+            "sender": "0",
+            "recipient": "0xabc123456789",
+            "amount": 1.0,
+            "signature": "",
+            "timestamp": 1756119729276,
+            "hash": "3ffe4e3a972bd2750f9836a2771fef4de534091c13e86de7f2583d49166e0bc9"
+          }
+        ],
+        "previous_hash": "f3379a7b21c1a9e59abd0269402d3de214487189672adb6dd6f29b2baa4636a8",
+        "nonce": 209765,
+        "hash": "8c96edf4f1e407cd3aceeba66778fe7675e4066b63992568a3b1ca6297fa75d6"
+      },
+      {
+        "index": 17,
+        "timestamp": 1756119720777,
+        "transactions": [
+          {
+            "sender": "0xabc123456789",
+            "recipient": "0xdef987654321",
+            "amount": 10.5,
+            "signature": "signed_payload_hex_or_base64",
+            "timestamp": 1712345678901,
+            "hash": "0423abce2a573da25474d4048eb95972887c2d5f8acb9f78856068effca5b22c"
+          },
+          {
+            "sender": "0",
+            "recipient": "48a751baa10b472ab913a9a33d734714",
+            "amount": 1.0,
+            "signature": "",
+            "timestamp": 1756119720777,
+            "hash": "abdb6f78256a9d087dc191b64a92f9f84a181284237deafa95fa8ff5c9cb46bb"
+          }
+        ],
+        "previous_hash": "fe84ed48f12f076da52822f013219f0c4770c727f46591d00f045aef0a1fc552",
+        "nonce": 15889,
+        "hash": "f3379a7b21c1a9e59abd0269402d3de214487189672adb6dd6f29b2baa4636a8"
+      },
+      {
+        "index": 16,
+        "timestamp": 1756111889822,
+        "transactions": [
+          {
+            "sender": "0",
+            "recipient": "0xabc123456789",
+            "amount": 1.0,
+            "signature": "",
+            "timestamp": 1756111889822,
+            "hash": "e7ba2ce2353db64735e586dbd96697e3dedf956e2b748df4ecd2cd3cc277c97b"
+          }
+        ],
+        "previous_hash": "7f4bcb44dcf7c97a5851e6b1897ebd8a8944bd38eca3f8f18d3b8205a64c06d2",
+        "nonce": 29341,
+        "hash": "fe84ed48f12f076da52822f013219f0c4770c727f46591d00f045aef0a1fc552"
+      },
+      {
+        "index": 15,
+        "timestamp": 1756111875609,
+        "transactions": [
+          {
+            "sender": "0xabc123456789",
+            "recipient": "0xdef987654321",
+            "amount": 10.5,
+            "signature": "signed_payload_hex_or_base64",
+            "timestamp": 1712345678901,
+            "hash": "0423abce2a573da25474d4048eb95972887c2d5f8acb9f78856068effca5b22c"
+          },
+          {
+            "sender": "0xabc123456789",
+            "recipient": "0xdef987654321",
+            "amount": 10.5,
+            "signature": "signed_payload_hex_or_base64",
+            "timestamp": 1712345678901,
+            "hash": "0423abce2a573da25474d4048eb95972887c2d5f8acb9f78856068effca5b22c"
+          },
+          {
+            "sender": "0",
+            "recipient": "17ec96a8c6d446038215108a16221e1e",
+            "amount": 1.0,
+            "signature": "",
+            "timestamp": 1756111875609,
+            "hash": "99b525d1f30cc88031dc3ac711f6c1bbe1198b99b27dd85e19102315d81a7841"
+          }
+        ],
+        "previous_hash": "804065055cb8ea15a706d851878d64d61717b7f5f9bc7d4e25a679af34111cc1",
+        "nonce": 20760,
+        "hash": "7f4bcb44dcf7c97a5851e6b1897ebd8a8944bd38eca3f8f18d3b8205a64c06d2"
+      },
+      {
+        "index": 14,
+        "timestamp": 1756021635108,
+        "transactions": [
+          {
+            "sender": "0",
+            "recipient": "738325c4cc434b22915cbbfc09e5aedc",
+            "amount": 1.0,
+            "signature": "",
+            "timestamp": 1756021635108,
+            "hash": "3ad907fb320dc021282ad8ce884008b302dcbac0755a75179b6cd1a7498c5874"
+          }
+        ],
+        "previous_hash": "02020c6889b3d58bbaa9e76a9463e201c03f00bdca2c2e72c1112ba0bab4d7af",
+        "nonce": 153122,
+        "hash": "804065055cb8ea15a706d851878d64d61717b7f5f9bc7d4e25a679af34111cc1"
       }
-    ]
-  }
+    ],
+    "total_count": 5
+  },
+  "code": "MSG_0076",
+  "httpStatus": "OK",
+  "description": "Latest blocks retrieved successfully"
 }
 ```
 
@@ -317,7 +524,29 @@ curl -X 'GET' \
   -H 'accept: application/json'
 ```
 
-**Response:** Same format as latest blocks, returns single block or 404 if not found.
+**Response:**
+```json
+{
+  "data": {
+    "block": {
+      "index": 2,
+      "timestamp": 1754173859.144962,
+      "transactions": [
+        {
+          "sender": "0",
+          "recipient": "3c2f8a00250646339c24eb5d4a60675d",
+          "amount": 1.0
+        }
+      ],
+      "previous_hash": "474458693c0aedc7644b150cc7568027798d356cd0eef2afd81c2d56f5c5b606",
+      "nonce": 35293,
+      "hash": "ba601d5b17f7e6be208f98174c71f89e29907850309d61eeb857f84c268fe6cc"
+    }
+  },
+  "code": "MSG_0077",
+  "httpStatus": "OK",
+  "description": "Block retrieved successfully"
+}
 
 ## 14. Get Block by Hash
 
@@ -329,7 +558,39 @@ curl -X 'GET' \
   -H 'accept: application/json'
 ```
 
-**Response:** Returns single block or 404 if hash not found.
+**Response (Success):**
+```json
+{
+  "data": {
+    "block": {
+      "index": 2,
+      "timestamp": 1754173859.144962,
+      "transactions": [
+        {
+          "sender": "0",
+          "recipient": "3c2f8a00250646339c24eb5d4a60675d",
+          "amount": 1.0
+        }
+      ],
+      "previous_hash": "474458693c0aedc7644b150cc7568027798d356cd0eef2afd81c2d56f5c5b606",
+      "nonce": 35293,
+      "hash": "ba601d5b17f7e6be208f98174c71f89e29907850309d61eeb857f84c268fe6cc"
+    }
+  },
+  "code": "MSG_0077",
+  "httpStatus": "OK",
+  "description": "Block retrieved successfully"
+}
+```
+
+**Response (Not Found):**
+```json
+{
+  "data": {},
+  "code": "ERR_0079",
+  "httpStatus": "NOT_FOUND",
+  "description": "Block with hash 000abc123456789... not found"
+}
 
 ## 15. Get Latest Transactions
 
@@ -350,16 +611,47 @@ curl -X 'GET' \
   "data": {
     "transactions": [
       {
-        "sender": "0xabc123456789",
-        "recipient": "0xdef987654321",
-        "amount": 10.5,
-        "signature": "signed_payload",
-        "timestamp": 1712345678901,
-        "hash": "abc123...",
-        "block_index": 2
+        "sender": "0",
+        "recipient": "0xabc123456789",
+        "amount": "1.0",
+        "signature": "",
+        "timestamp": "1756119729276",
+        "hash": "3ffe4e3a972bd2750f9836a2771fef4de534091c13e86de7f2583d49166e0bc9",
+        "block_index": "18"
+      },
+      {
+        "sender": "0",
+        "recipient": "48a751baa10b472ab913a9a33d734714",
+        "amount": "1.0",
+        "signature": "",
+        "timestamp": "1756119720777",
+        "hash": "abdb6f78256a9d087dc191b64a92f9f84a181284237deafa95fa8ff5c9cb46bb",
+        "block_index": "17"
+      },
+      {
+        "sender": "0",
+        "recipient": "0xabc123456789",
+        "amount": "1.0",
+        "signature": "",
+        "timestamp": "1756111889822",
+        "hash": "e7ba2ce2353db64735e586dbd96697e3dedf956e2b748df4ecd2cd3cc277c97b",
+        "block_index": "16"
+      },
+      {
+        "sender": "0",
+        "recipient": "17ec96a8c6d446038215108a16221e1e",
+        "amount": "1.0",
+        "signature": "",
+        "timestamp": "1756111875609",
+        "hash": "99b525d1f30cc88031dc3ac711f6c1bbe1198b99b27dd85e19102315d81a7841",
+        "block_index": "15"
       }
-    ]
-  }
+    ],
+    "total_count": 4
+  },
+  "code": "MSG_0080",
+  "httpStatus": "OK",
+  "description": "Latest transactions retrieved successfully"
 }
 ```
 
@@ -369,11 +661,61 @@ Search for a transaction by its SHA-256 hash in both pending and confirmed trans
 
 ```bash
 curl -X 'GET' \
-  'http://127.0.0.1:8000/transactions/abc123456789...' \
+  'http://127.0.0.1:8000/transactions/3ffe4e3a972bd2750f9836a2771fef4de534091c13e86de7f2583d49166e0bc9' \
   -H 'accept: application/json'
 ```
 
-**Response:** Returns single transaction object or 404 if not found.
+**Response (Found in Block):**
+```json
+{
+  "data": {
+    "transaction": {
+      "sender": "0",
+      "recipient": "0xabc123456789",
+      "amount": "1.0",
+      "signature": "",
+      "timestamp": "1756119729276",
+      "hash": "3ffe4e3a972bd2750f9836a2771fef4de534091c13e86de7f2583d49166e0bc9",
+      "block_index": "18",
+      "status": "confirmed"
+    }
+  },
+  "code": "MSG_0081",
+  "httpStatus": "OK",
+  "description": "Transaction found in blockchain"
+}
+```
+
+**Response (Found in Pending):**
+```json
+{
+  "data": {
+    "transaction": {
+      "sender": "0xabc123456789",
+      "recipient": "0xdef987654321",
+      "amount": 10.5,
+      "signature": "signed_payload",
+      "timestamp": 1712345678901,
+      "hash": "abc123...",
+      "block_index": null,
+      "status": "pending"
+    }
+  },
+  "code": "MSG_0081",
+  "httpStatus": "OK",
+  "description": "Transaction retrieved successfully (pending)"
+}
+```
+
+**Response (Not Found):**
+```json
+{
+  "data": {},
+  "code": "ERR_0082",
+  "httpStatus": "NOT_FOUND",
+  "description": "Transaction with hash not found in blockchain or mempool"
+}
+```
 
 ## 17. Get Transactions for Address
 
@@ -388,11 +730,49 @@ Retrieve all transactions where the address is either sender or recipient.
 
 ```bash
 curl -X 'GET' \
-  'http://127.0.0.1:8000/address/0xabc123456789/transactions?limit=15&before=1712345678901' \
+  'http://127.0.0.1:8000/address/0xabc123456789/transactions' \
   -H 'accept: application/json'
 ```
 
-**Response:** Same format as latest transactions, filtered by address.
+**Response:**
+```json
+{
+  "data": {
+    "address": "0xabc123456789",
+    "sent": [
+      {
+        "recipient": "0xdef987654321",
+        "amount": "10.5",
+        "timestamp": "1712345678901",
+        "hash": "0423abce2a573da25474d4048eb95972887c2d5f8acb9f78856068effca5b22c",
+        "block_index": "17"
+      }
+    ],
+    "received": [
+      {
+        "sender": "0",
+        "amount": "1.0",
+        "timestamp": "1756119729276",
+        "hash": "3ffe4e3a972bd2750f9836a2771fef4de534091c13e86de7f2583d49166e0bc9",
+        "block_index": "18"
+      },
+      {
+        "sender": "0",
+        "amount": "1.0",
+        "timestamp": "1756111889822",
+        "hash": "e7ba2ce2353db64735e586dbd96697e3dedf956e2b748df4ecd2cd3cc277c97b",
+        "block_index": "16"
+      }
+    ],
+    "total_sent": 10.5,
+    "total_received": 2.0,
+    "balance": -8.5
+  },
+  "code": "MSG_0083",
+  "httpStatus": "OK",
+  "description": "Address transactions retrieved successfully"
+}
+```
 
 ## 18. Mining Status
 
@@ -407,16 +787,22 @@ curl -X 'GET' \
 **Response:**
 ```json
 {
-  "hashRate": 0,
-  "difficulty": 4,
-  "currentTarget": "0000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-  "nonceAttempts": 0,
-  "inProgress": false,
-  "lastBlock": {
-    "index": 2,
-    "hash": "000abc123...",
-    "timestamp": 1712345678901
-  }
+  "data": {
+    "hashRate": 0,
+    "difficulty": 4,
+    "currentTarget": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "nonceAttempts": 0,
+    "inProgress": false,
+    "lastBlock": {
+      "index": 18,
+      "hash": "8c96edf4f1e407cd3aceeba66778fe7675e4066b63992568a3b1ca6297fa75d6",
+      "timestamp": 1756119729276,
+      "transactions_count": 1
+    }
+  },
+  "code": "MSG_0070",
+  "httpStatus": "OK",
+  "description": "Mining status retrieved successfully"
 }
 ```
 

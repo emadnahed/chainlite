@@ -5,6 +5,7 @@ from uuid import uuid4
 from typing import Dict, Any, Optional, List
 import logging
 import requests
+import json
 
 from .blockchain import Blockchain
 from .models import (
@@ -473,70 +474,234 @@ async def get_pending_transactions():
         "description": "List of pending transactions retrieved successfully"
     }
 
-@app.get("/balance/{address}", tags=["Wallet"])
+@app.get(
+    "/balance/{address}",
+    status_code=status.HTTP_200_OK,
+    tags=["Wallet"]
+)
 async def get_balance(address: str = Path(..., regex=r"^0x[a-fA-F0-9]{6,}$")):
-    sent = 0.0
-    received = 0.0
-    for block in blockchain.chain:
-        for tx in block.get("transactions", []):
+    """
+    Get the current balance for a given address
+    
+    - **address**: The wallet address to check balance for (must start with 0x followed by 6+ hex chars)
+    """
+    try:
+        sent = 0.0
+        received = 0.0
+        
+        # Calculate balance from confirmed transactions
+        for block in blockchain.chain:
+            for tx in block.get("transactions", []):
+                if tx.get("sender") == address:
+                    sent += float(tx.get("amount", 0))
+                if tx.get("recipient") == address:
+                    received += float(tx.get("amount", 0))
+        
+        # Adjust for pending transactions
+        for tx in blockchain.current_transactions:
             if tx.get("sender") == address:
                 sent += float(tx.get("amount", 0))
-            if tx.get("recipient") == address:
-                received += float(tx.get("amount", 0))
-    for tx in blockchain.current_transactions:
-        if tx.get("sender") == address:
-            sent += float(tx.get("amount", 0))
-    return {"balance": max(received - sent, 0.0)}
+        
+        balance = max(received - sent, 0.0)
+        
+        return {
+            "data": {
+                "address": address,
+                "balance": balance,
+                "total_received": received,
+                "total_sent": sent,
+                "pending_transactions": any(tx.get("sender") == address for tx in blockchain.current_transactions)
+            },
+            "code": "MSG_0075",
+            "httpStatus": "OK",
+            "description": "Balance retrieved successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting balance for address {address}: {str(e)}")
+        return {
+            "data": {},
+            "code": "ERR_0075",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": f"Failed to retrieve balance: {str(e)}"
+        }
 
-@app.get("/blocks/latest", tags=["Blockchain"])
+@app.get(
+    "/blocks/latest",
+    status_code=status.HTTP_200_OK,
+    tags=["Blockchain"]
+)
 async def get_latest_blocks(limit: int = Query(10, ge=1, le=100)):
-    blocks = blockchain.chain[-limit:][::-1]
-    resp: List[Dict[str, Any]] = []
-    for b in blocks:
-        bd = dict(b)
-        if 'proof' in bd:
-            bd['nonce'] = bd.pop('proof')
-        bd['hash'] = blockchain.hash(b)
-        bd.pop('_id', None)
-        resp.append(bd)
-    return {"data": {"blocks": resp}}
-
-@app.get("/blocks/{height}", tags=["Blockchain"])
-async def get_block_by_height(height: int = Path(..., ge=1)):
-    for b in blockchain.chain:
-        if b.get('index') == height:
+    """
+    Retrieve the most recent blocks from the blockchain.
+    
+    - **limit**: Number of blocks to return (1-100, default: 10)
+    """
+    try:
+        blocks = blockchain.chain[-limit:][::-1]
+        resp: List[Dict[str, Any]] = []
+        for b in blocks:
             bd = dict(b)
             if 'proof' in bd:
                 bd['nonce'] = bd.pop('proof')
             bd['hash'] = blockchain.hash(b)
             bd.pop('_id', None)
-            return {"data": {"block": bd}}
-    raise HTTPException(status_code=404, detail="Block not found")
+            resp.append(bd)
+        return {
+            "data": {
+                "blocks": resp,
+                "total_count": len(resp)
+            },
+            "code": "MSG_0076",
+            "httpStatus": "OK",
+            "description": "Latest blocks retrieved successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving latest blocks: {str(e)}")
+        return {
+            "data": {},
+            "code": "ERR_0076",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": "Failed to retrieve latest blocks"
+        }
 
-@app.get("/transactions/latest", tags=["Transactions"])
+@app.get(
+    "/blocks/{height}",
+    status_code=status.HTTP_200_OK,
+    tags=["Blockchain"]
+)
+async def get_block_by_height(height: int = Path(..., ge=1)):
+    """
+    Retrieve a specific block by its index/height.
+    """
+    try:
+        for b in blockchain.chain:
+            if b.get('index') == height:
+                bd = dict(b)
+                if 'proof' in bd:
+                    bd['nonce'] = bd.pop('proof')
+                bd['hash'] = blockchain.hash(b)
+                bd.pop('_id', None)
+                return {
+                    "data": {"block": bd},
+                    "code": "MSG_0077",
+                    "httpStatus": "OK",
+                    "description": "Block retrieved successfully"
+                }
+        # Not found -> return standardized 404 response
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "data": {},
+                "code": "ERR_0077",
+                "httpStatus": "NOT_FOUND",
+                "description": f"Block with height {height} not found"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving block by height {height}: {str(e)}")
+        return {
+            "data": {},
+            "code": "ERR_0078",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": "Failed to retrieve block by height"
+        }
+
+@app.get(
+    "/transactions/latest",
+    status_code=status.HTTP_200_OK,
+    tags=["Transactions"]
+)
 async def get_latest_transactions(limit: int = Query(20, ge=1, le=100)):
-    # Pull the latest mined transactions from the DB
-    cursor = blockchain.transactions.find().sort([("timestamp", -1)]).limit(limit)
-    txs = []
-    for tx in cursor:
-        tx = {k: (str(v) if k == '_id' else v) for k, v in dict(tx).items()}
-        tx.pop('_id', None)
-        txs.append(tx)
-    return {"data": {"transactions": txs}}
+    """
+    Retrieve the most recent confirmed transactions from the database.
+    
+    - **limit**: Number of transactions to return (1-100, default: 20)
+    """
+    try:
+        # Pull the latest mined transactions from the DB
+        cursor = blockchain.transactions.find().sort([("timestamp", -1)]).limit(limit)
+        txs: List[Dict[str, Any]] = []
+
+        for tx in cursor:
+            # Ensure safe serialization of MongoDB docs
+            tx_dict = dict(tx)
+            sanitized: Dict[str, Any] = {}
+            for k, v in tx_dict.items():
+                if k == '_id':
+                    # Drop internal Mongo ID
+                    continue
+                # Convert non-JSON-serializable values to str
+                try:
+                    _ = json.dumps(v)  # quick serializability check
+                    sanitized[k] = v
+                except Exception:
+                    sanitized[k] = str(v)
+            txs.append(sanitized)
+
+        return {
+            "data": {
+                "transactions": txs,
+                "total_count": len(txs)
+            },
+            "code": "MSG_0080",
+            "httpStatus": "OK",
+            "description": "Latest transactions retrieved successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving latest transactions: {str(e)}", exc_info=True)
+        return {
+            "data": {},
+            "code": "ERR_0080",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": "Failed to retrieve latest transactions"
+        }
 
 @app.get("/transactions/{hash}", tags=["Transactions"])
 async def get_transaction_by_hash(hash: str):
-    # Search pending
-    for tx in blockchain.current_transactions:
-        if tx.get('hash') == hash:
-            return {"data": {"transaction": tx}}
-    # Search confirmed
-    found = blockchain.transactions.find_one({"hash": hash})
-    if found:
-        found = {k: (str(v) if k == '_id' else v) for k, v in dict(found).items()}
-        found.pop('_id', None)
-        return {"data": {"transaction": found}}
-    raise HTTPException(status_code=404, detail="Transaction not found")
+    """
+    Retrieve a transaction by its hash from pending or confirmed collections.
+    Returns standardized response format.
+    """
+    try:
+        # Search pending
+        for tx in blockchain.current_transactions:
+            if tx.get('hash') == hash:
+                return {
+                    "data": {"transaction": tx},
+                    "code": "MSG_0081",
+                    "httpStatus": "OK",
+                    "description": "Transaction retrieved successfully (pending)"
+                }
+        # Search confirmed
+        found = blockchain.transactions.find_one({"hash": hash})
+        if found:
+            found = {k: (str(v) if k == '_id' else v) for k, v in dict(found).items()}
+            found.pop('_id', None)
+            return {
+                "data": {"transaction": found},
+                "code": "MSG_0082",
+                "httpStatus": "OK",
+                "description": "Transaction retrieved successfully"
+            }
+        # Not found -> standardized 404
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "data": {},
+                "code": "ERR_0081",
+                "httpStatus": "NOT_FOUND",
+                "description": "Transaction not found"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving transaction by hash {hash}: {str(e)}")
+        return {
+            "data": {},
+            "code": "ERR_0082",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": "Failed to retrieve transaction by hash"
+        }
 
 @app.get("/address/{address}/transactions", tags=["Transactions"])
 async def get_transactions_by_address(
@@ -544,16 +709,33 @@ async def get_transactions_by_address(
     limit: int = Query(20, ge=1, le=100),
     before: Optional[int] = Query(None, description="Return txs before this timestamp (ms)"),
 ):
-    query: Dict[str, Any] = {"$or": [{"sender": address}, {"recipient": address}]}
-    if before is not None:
-        query["timestamp"] = {"$lt": before}
-    cursor = blockchain.transactions.find(query).sort([("timestamp", -1)]).limit(limit)
-    txs: List[Dict[str, Any]] = []
-    for tx in cursor:
-        tx = {k: (str(v) if k == '_id' else v) for k, v in dict(tx).items()}
-        tx.pop('_id', None)
-        txs.append(tx)
-    return {"data": {"transactions": txs}}
+    try:
+        query: Dict[str, Any] = {"$or": [{"sender": address}, {"recipient": address}]}
+        if before is not None:
+            query["timestamp"] = {"$lt": before}
+        cursor = blockchain.transactions.find(query).sort([("timestamp", -1)]).limit(limit)
+        txs: List[Dict[str, Any]] = []
+        for tx in cursor:
+            tx = {k: (str(v) if k == '_id' else v) for k, v in dict(tx).items()}
+            tx.pop('_id', None)
+            txs.append(tx)
+        return {
+            "data": {
+                "transactions": txs,
+                "total_count": len(txs)
+            },
+            "code": "MSG_0083",
+            "httpStatus": "OK",
+            "description": "Transactions retrieved successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving transactions for address {address}: {str(e)}", exc_info=True)
+        return {
+            "data": {},
+            "code": "ERR_0083",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": "Failed to retrieve transactions for address"
+        }
 
 @app.get(
     "/mining/status",
@@ -603,48 +785,174 @@ async def mining_status():
             "description": "Failed to retrieve mining status"
         }
 
-@app.delete("/nodes/{node_id}", tags=["Nodes"])
+@app.delete(
+    "/nodes/{node_id}",
+    status_code=status.HTTP_200_OK,
+    tags=["Nodes"]
+)
 async def unregister_node(node_id: str = Path(..., description="URL-safe identifier of a node (host:port or full URL)")):
-    # Normalize to netloc (host:port)
-    from urllib.parse import urlparse
-    parsed = urlparse(node_id if node_id.startswith(('http://', 'https://')) else f"http://{node_id}")
-    netloc = parsed.netloc
-    if netloc in blockchain.nodes:
+    """
+    Unregister a node from the network
+    
+    - **node_id**: Either a host:port or full URL of the node to unregister
+    """
+    try:
+        # Normalize to netloc (host:port)
+        from urllib.parse import urlparse
+        parsed = urlparse(node_id if node_id.startswith(('http://', 'https://')) else f"http://{node_id}")
+        netloc = parsed.netloc
+        
+        if netloc not in blockchain.nodes:
+            return {
+                "data": {},
+                "code": "ERR_0070",
+                "httpStatus": "NOT_FOUND",
+                "description": f"Node {netloc} not found in registered nodes"
+            }
+            
+        # Remove the node
         blockchain.nodes.remove(netloc)
+        
+        # Update database
         try:
             blockchain.node_collection.delete_one({"address": netloc})
-        except Exception:
-            pass
-    return {"message": "Node(s) removed", "total_nodes": [f"http://{addr}" for addr in list(blockchain.nodes)]}
+        except Exception as e:
+            logger.error(f"Error removing node from database: {str(e)}")
+        
+        # Format node addresses consistently
+        formatted_nodes = [f"http://{addr}" for addr in list(blockchain.nodes)]
+        
+        return {
+            "data": {
+                "removed_node": netloc,
+                "total_nodes": formatted_nodes,
+                "total_count": len(formatted_nodes)
+            },
+            "code": "MSG_0071",
+            "httpStatus": "OK",
+            "description": "Node unregistered successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error unregistering node: {str(e)}")
+        return {
+            "data": {},
+            "code": "ERR_0071",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": f"Failed to unregister node: {str(e)}"
+        }
 
-@app.post("/nodes/unregister", tags=["Nodes"])
+@app.post(
+    "/nodes/unregister",
+    status_code=status.HTTP_200_OK,
+    tags=["Nodes"]
+)
 async def unregister_nodes(body: Dict[str, List[str]]):
-    nodes = body.get("nodes", []) if isinstance(body, dict) else []
-    from urllib.parse import urlparse
-    removed: List[str] = []
-    for node in nodes:
-        parsed = urlparse(node if node.startswith(('http://', 'https://')) else f"http://{node}")
-        netloc = parsed.netloc
-        if netloc in blockchain.nodes:
-            blockchain.nodes.remove(netloc)
-            removed.append(netloc)
+    """
+    Unregister multiple nodes from the network
+    
+    - **body**: Dictionary containing 'nodes' key with list of node addresses
+    """
+    try:
+        nodes = body.get("nodes", []) if isinstance(body, dict) else []
+        if not nodes:
+            return {
+                "data": {},
+                "code": "ERR_0072",
+                "httpStatus": "BAD_REQUEST",
+                "description": "No nodes provided for unregistration"
+            }
+            
+        from urllib.parse import urlparse
+        removed: List[str] = []
+        
+        for node in nodes:
             try:
-                blockchain.node_collection.delete_one({"address": netloc})
-            except Exception:
-                pass
-    return {"message": "Node(s) removed", "total_nodes": [f"http://{addr}" for addr in list(blockchain.nodes)]}
+                parsed = urlparse(node if node.startswith(('http://', 'https://')) else f"http://{node}")
+                netloc = parsed.netloc
+                if netloc in blockchain.nodes:
+                    blockchain.nodes.remove(netloc)
+                    removed.append(netloc)
+                    try:
+                        blockchain.node_collection.delete_one({"address": netloc})
+                    except Exception as e:
+                        logger.error(f"Error removing node {netloc} from database: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error processing node {node}: {str(e)}")
+        
+        if not removed:
+            return {
+                "data": {},
+                "code": "MSG_0073",
+                "httpStatus": "OK",
+                "description": "No nodes were unregistered (none matched existing nodes)"
+            }
+        
+        # Format node addresses consistently
+        formatted_nodes = [f"http://{addr}" for addr in list(blockchain.nodes)]
+        
+        return {
+            "data": {
+                "removed_nodes": removed,
+                "total_nodes": formatted_nodes,
+                "total_count": len(formatted_nodes),
+                "removed_count": len(removed)
+            },
+            "code": "MSG_0074",
+            "httpStatus": "OK",
+            "description": f"Successfully unregistered {len(removed)} node(s)"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error unregistering nodes: {str(e)}")
+        return {
+            "data": {},
+            "code": "ERR_0073",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": f"Failed to unregister nodes: {str(e)}"
+        }
 
-@app.get("/blocks/hash/{hash}", tags=["Blockchain"])
+@app.get(
+    "/blocks/hash/{hash}",
+    status_code=status.HTTP_200_OK,
+    tags=["Blockchain"]
+)
 async def get_block_by_hash(hash: str):
-    for b in blockchain.chain:
-        if blockchain.hash(b) == hash:
-            bd = dict(b)
-            if 'proof' in bd:
-                bd['nonce'] = bd.pop('proof')
-            bd['hash'] = hash
-            bd.pop('_id', None)
-            return {"data": {"block": bd}}
-    raise HTTPException(status_code=404, detail="Block not found")
+    """
+    Retrieve a specific block by its SHA-256 hash.
+    """
+    try:
+        for b in blockchain.chain:
+            if blockchain.hash(b) == hash:
+                bd = dict(b)
+                if 'proof' in bd:
+                    bd['nonce'] = bd.pop('proof')
+                bd['hash'] = hash
+                bd.pop('_id', None)
+                return {
+                    "data": {"block": bd},
+                    "code": "MSG_0079",
+                    "httpStatus": "OK",
+                    "description": "Block retrieved successfully"
+                }
+        # Not found -> standardized 404 response
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "data": {},
+                "code": "ERR_0079",
+                "httpStatus": "NOT_FOUND",
+                "description": f"Block with hash {hash} not found"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving block by hash {hash}: {str(e)}")
+        return {
+            "data": {},
+            "code": "ERR_0080",
+            "httpStatus": "INTERNAL_SERVER_ERROR",
+            "description": "Failed to retrieve block by hash"
+        }
 
 @app.get(
     "/status",
